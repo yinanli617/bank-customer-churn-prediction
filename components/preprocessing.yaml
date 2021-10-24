@@ -1,0 +1,56 @@
+name: Preprocessing
+inputs:
+- {name: input_csv, type: Dataset}
+- {name: numerical_features, type: String}
+- {name: categorical_features, type: String}
+- {name: target, type: String}
+outputs:
+- {name: features, type: Dataset}
+- {name: labels, type: Dataset}
+- {name: scaler_obj, type: Model}
+- {name: encoder_obj, type: Model}
+implementation:
+  container:
+    image: yinanli617/customer-churn:latest
+    command:
+    - sh
+    - -c
+    - |2
+
+      if ! [ -x "$(command -v pip)" ]; then
+          python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+      fi
+
+      PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'kfp==1.8.6' && "$0" "$@"
+    - sh
+    - -ec
+    - |
+      program_path=$(mktemp -d)
+      printf "%s" "$0" > "$program_path/ephemeral_component.py"
+      python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+    - "\nimport kfp\nfrom kfp.v2 import dsl\nfrom kfp.v2.dsl import *\nfrom typing\
+      \ import *\n\ndef preprocessing(input_csv: Input[Dataset],\n               \
+      \   numerical_features: str,\n                  categorical_features: str,\n\
+      \                  target: str,\n                  features: Output[Dataset],\n\
+      \                  labels: Output[Dataset],\n                  scaler_obj: Output[Model],\n\
+      \                  encoder_obj: Output[Model],\n                 ):\n    import\
+      \ pandas as pd\n    import numpy as np\n    from sklearn.preprocessing import\
+      \ OneHotEncoder, StandardScaler\n    from pickle import dump\n    from ast import\
+      \ literal_eval\n\n    # The features are stored as strings. We do the trick\
+      \ with literal_eval to convert them to the\n    # correct format (list)\n  \
+      \  categorical_features = literal_eval(categorical_features)\n    numerical_features\
+      \ = literal_eval(numerical_features)\n\n    df = pd.read_csv(input_csv.path)\n\
+      \    X_cat = df[categorical_features]\n    X_num = df[numerical_features]\n\
+      \    y = df[target]\n\n    scaler = StandardScaler()\n    X_num = scaler.fit_transform(X_num)\n\
+      \    encoder = OneHotEncoder()\n    X_cat = encoder.fit_transform(X_cat).toarray()\n\
+      \    X = np.concatenate([X_num, X_cat], axis=1)\n\n    pd.DataFrame(X).to_csv(features.path,\
+      \ index=False)\n    y.to_csv(labels.path, index=False)\n    # To prevent leakage,\
+      \ the scaler and the encoder should not see the test dataset.\n    # We save\
+      \ the scaler and encoder that have been fit to the training dataset and \n \
+      \   # use it directly on the test dataset later on.\n    dump(scaler, open(scaler_obj.path,\
+      \ 'wb'))\n    dump(encoder, open(encoder_obj.path, 'wb'))\n\n"
+    args:
+    - --executor_input
+    - {executorInput: null}
+    - --function_to_execute
+    - preprocessing

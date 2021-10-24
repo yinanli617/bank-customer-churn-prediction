@@ -1,0 +1,1143 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Workflow
+metadata:
+  generateName: bank-customer-churn-pipeline-
+  annotations:
+    pipelines.kubeflow.org/kfp_sdk_version: 1.8.6
+    pipelines.kubeflow.org/pipeline_compilation_time: '2021-10-23T21:20:48.356607'
+    pipelines.kubeflow.org/pipeline_spec: '{"inputs": [{"name": "url", "type": "String"},
+      {"name": "num_folds", "type": "Integer"}, {"name": "target", "type": "String"},
+      {"name": "numerical_features", "type": "String"}, {"name": "categorical_features",
+      "type": "String"}, {"name": "scoring", "type": "String"}, {"name": "logistic_regression_params",
+      "type": "String"}, {"name": "random_forests_params", "type": "String"}, {"name":
+      "knn_params", "type": "String"}, {"name": "seed", "type": "Integer"}, {"default":
+      "gs://kfp-yli/customer-churn", "name": "pipeline-root"}, {"default": "pipeline/bank-customer-churn-pipeline",
+      "name": "pipeline-name"}], "name": "bank-customer-churn-pipeline"}'
+    pipelines.kubeflow.org/v2_pipeline: "true"
+  labels:
+    pipelines.kubeflow.org/v2_pipeline: "true"
+    pipelines.kubeflow.org/kfp_sdk_version: 1.8.6
+spec:
+  entrypoint: bank-customer-churn-pipeline
+  templates:
+  - name: bank-customer-churn-pipeline
+    inputs:
+      parameters:
+      - {name: categorical_features}
+      - {name: knn_params}
+      - {name: logistic_regression_params}
+      - {name: num_folds}
+      - {name: numerical_features}
+      - {name: pipeline-name}
+      - {name: pipeline-root}
+      - {name: random_forests_params}
+      - {name: scoring}
+      - {name: seed}
+      - {name: target}
+      - {name: url}
+    dag:
+      tasks:
+      - name: download-csv
+        template: download-csv
+        arguments:
+          parameters:
+          - {name: pipeline-name, value: '{{inputs.parameters.pipeline-name}}'}
+          - {name: pipeline-root, value: '{{inputs.parameters.pipeline-root}}'}
+          - {name: url, value: '{{inputs.parameters.url}}'}
+      - name: knn
+        template: knn
+        dependencies: [preprocessing]
+        arguments:
+          parameters:
+          - {name: knn_params, value: '{{inputs.parameters.knn_params}}'}
+          - {name: num_folds, value: '{{inputs.parameters.num_folds}}'}
+          - {name: pipeline-name, value: '{{inputs.parameters.pipeline-name}}'}
+          - {name: pipeline-root, value: '{{inputs.parameters.pipeline-root}}'}
+          - {name: scoring, value: '{{inputs.parameters.scoring}}'}
+          artifacts:
+          - {name: preprocessing-features, from: '{{tasks.preprocessing.outputs.artifacts.preprocessing-features}}'}
+          - {name: preprocessing-labels, from: '{{tasks.preprocessing.outputs.artifacts.preprocessing-labels}}'}
+      - name: logistic-regression
+        template: logistic-regression
+        dependencies: [preprocessing]
+        arguments:
+          parameters:
+          - {name: logistic_regression_params, value: '{{inputs.parameters.logistic_regression_params}}'}
+          - {name: num_folds, value: '{{inputs.parameters.num_folds}}'}
+          - {name: pipeline-name, value: '{{inputs.parameters.pipeline-name}}'}
+          - {name: pipeline-root, value: '{{inputs.parameters.pipeline-root}}'}
+          - {name: scoring, value: '{{inputs.parameters.scoring}}'}
+          - {name: seed, value: '{{inputs.parameters.seed}}'}
+          artifacts:
+          - {name: preprocessing-features, from: '{{tasks.preprocessing.outputs.artifacts.preprocessing-features}}'}
+          - {name: preprocessing-labels, from: '{{tasks.preprocessing.outputs.artifacts.preprocessing-labels}}'}
+      - name: predict-test-data
+        template: predict-test-data
+        dependencies: [knn, logistic-regression, preprocessing, random-forests, train-test-split]
+        arguments:
+          parameters:
+          - {name: categorical_features, value: '{{inputs.parameters.categorical_features}}'}
+          - {name: knn-Output, value: '{{tasks.knn.outputs.parameters.knn-Output}}'}
+          - {name: logistic-regression-Output, value: '{{tasks.logistic-regression.outputs.parameters.logistic-regression-Output}}'}
+          - {name: numerical_features, value: '{{inputs.parameters.numerical_features}}'}
+          - {name: pipeline-name, value: '{{inputs.parameters.pipeline-name}}'}
+          - {name: pipeline-root, value: '{{inputs.parameters.pipeline-root}}'}
+          - {name: random-forests-Output, value: '{{tasks.random-forests.outputs.parameters.random-forests-Output}}'}
+          - {name: target, value: '{{inputs.parameters.target}}'}
+          artifacts:
+          - {name: knn-best_model, from: '{{tasks.knn.outputs.artifacts.knn-best_model}}'}
+          - {name: logistic-regression-best_model, from: '{{tasks.logistic-regression.outputs.artifacts.logistic-regression-best_model}}'}
+          - {name: preprocessing-encoder_obj, from: '{{tasks.preprocessing.outputs.artifacts.preprocessing-encoder_obj}}'}
+          - {name: preprocessing-scaler_obj, from: '{{tasks.preprocessing.outputs.artifacts.preprocessing-scaler_obj}}'}
+          - {name: random-forests-best_model, from: '{{tasks.random-forests.outputs.artifacts.random-forests-best_model}}'}
+          - {name: train-test-split-test_csv, from: '{{tasks.train-test-split.outputs.artifacts.train-test-split-test_csv}}'}
+      - name: preprocessing
+        template: preprocessing
+        dependencies: [train-test-split]
+        arguments:
+          parameters:
+          - {name: categorical_features, value: '{{inputs.parameters.categorical_features}}'}
+          - {name: numerical_features, value: '{{inputs.parameters.numerical_features}}'}
+          - {name: pipeline-name, value: '{{inputs.parameters.pipeline-name}}'}
+          - {name: pipeline-root, value: '{{inputs.parameters.pipeline-root}}'}
+          - {name: target, value: '{{inputs.parameters.target}}'}
+          artifacts:
+          - {name: train-test-split-train_csv, from: '{{tasks.train-test-split.outputs.artifacts.train-test-split-train_csv}}'}
+      - name: random-forests
+        template: random-forests
+        dependencies: [preprocessing]
+        arguments:
+          parameters:
+          - {name: num_folds, value: '{{inputs.parameters.num_folds}}'}
+          - {name: pipeline-name, value: '{{inputs.parameters.pipeline-name}}'}
+          - {name: pipeline-root, value: '{{inputs.parameters.pipeline-root}}'}
+          - {name: random_forests_params, value: '{{inputs.parameters.random_forests_params}}'}
+          - {name: scoring, value: '{{inputs.parameters.scoring}}'}
+          - {name: seed, value: '{{inputs.parameters.seed}}'}
+          artifacts:
+          - {name: preprocessing-features, from: '{{tasks.preprocessing.outputs.artifacts.preprocessing-features}}'}
+          - {name: preprocessing-labels, from: '{{tasks.preprocessing.outputs.artifacts.preprocessing-labels}}'}
+      - name: train-test-split
+        template: train-test-split
+        dependencies: [download-csv]
+        arguments:
+          parameters:
+          - {name: pipeline-name, value: '{{inputs.parameters.pipeline-name}}'}
+          - {name: pipeline-root, value: '{{inputs.parameters.pipeline-root}}'}
+          - {name: seed, value: '{{inputs.parameters.seed}}'}
+          - {name: target, value: '{{inputs.parameters.target}}'}
+          artifacts:
+          - {name: download-csv-output_csv, from: '{{tasks.download-csv.outputs.artifacts.download-csv-output_csv}}'}
+  - name: download-csv
+    container:
+      args:
+      - sh
+      - -c
+      - |2
+
+        if ! [ -x "$(command -v pip)" ]; then
+            python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+        fi
+
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'kfp==1.8.6' && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp -d)
+        printf "%s" "$0" > "$program_path/ephemeral_component.py"
+        python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+      - |2+
+
+        import kfp
+        from kfp.v2 import dsl
+        from kfp.v2.dsl import *
+        from typing import *
+
+        def download_csv(url: str, output_csv: Output[Dataset]):
+            import urllib.request
+            import pandas as pd
+
+            urllib.request.urlretrieve(url=url,
+                                       filename=output_csv.path,
+                                      )
+
+      - --executor_input
+      - '{{$}}'
+      - --function_to_execute
+      - download_csv
+      command: [/kfp-launcher/launch, --mlmd_server_address, $(METADATA_GRPC_SERVICE_HOST),
+        --mlmd_server_port, $(METADATA_GRPC_SERVICE_PORT), --runtime_info_json, $(KFP_V2_RUNTIME_INFO),
+        --container_image, $(KFP_V2_IMAGE), --task_name, download-csv, --pipeline_name,
+        '{{inputs.parameters.pipeline-name}}', --run_id, $(KFP_RUN_ID), --run_resource,
+        workflows.argoproj.io/$(WORKFLOW_ID), --namespace, $(KFP_NAMESPACE), --pod_name,
+        $(KFP_POD_NAME), --pod_uid, $(KFP_POD_UID), --pipeline_root, '{{inputs.parameters.pipeline-root}}',
+        --enable_caching, $(ENABLE_CACHING), --, 'url={{inputs.parameters.url}}',
+        --]
+      env:
+      - name: KFP_POD_NAME
+        valueFrom:
+          fieldRef: {fieldPath: metadata.name}
+      - name: KFP_POD_UID
+        valueFrom:
+          fieldRef: {fieldPath: metadata.uid}
+      - name: KFP_NAMESPACE
+        valueFrom:
+          fieldRef: {fieldPath: metadata.namespace}
+      - name: WORKFLOW_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''workflows.argoproj.io/workflow'']'}
+      - name: KFP_RUN_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipeline/runid'']'}
+      - name: ENABLE_CACHING
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipelines.kubeflow.org/enable_caching'']'}
+      - {name: KFP_V2_IMAGE, value: 'yinanli617/customer-churn:latest'}
+      - {name: KFP_V2_RUNTIME_INFO, value: '{"inputParameters": {"url": {"type": "STRING"}},
+          "inputArtifacts": {}, "outputParameters": {}, "outputArtifacts": {"output_csv":
+          {"schemaTitle": "system.Dataset", "instanceSchema": "", "schemaVersion":
+          "0.0.1", "metadataPath": "/tmp/outputs/output_csv/data"}}}'}
+      envFrom:
+      - configMapRef: {name: metadata-grpc-configmap, optional: true}
+      image: yinanli617/customer-churn:latest
+      volumeMounts:
+      - {mountPath: /kfp-launcher, name: kfp-launcher}
+    inputs:
+      parameters:
+      - {name: pipeline-name}
+      - {name: pipeline-root}
+      - {name: url}
+    outputs:
+      artifacts:
+      - {name: download-csv-output_csv, path: /tmp/outputs/output_csv/data}
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/component_ref: '{}'
+        pipelines.kubeflow.org/arguments.parameters: '{"url": "{{inputs.parameters.url}}"}'
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.6
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/enable_caching: "true"
+    initContainers:
+    - command: [launcher, --copy, /kfp-launcher/launch]
+      image: gcr.io/ml-pipeline/kfp-launcher:1.8.6
+      name: kfp-launcher
+      mirrorVolumeMounts: true
+    volumes:
+    - {name: kfp-launcher}
+  - name: knn
+    container:
+      args:
+      - sh
+      - -c
+      - |2
+
+        if ! [ -x "$(command -v pip)" ]; then
+            python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+        fi
+
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'kfp==1.8.6' && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp -d)
+        printf "%s" "$0" > "$program_path/ephemeral_component.py"
+        python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+      - |2+
+
+        import kfp
+        from kfp.v2 import dsl
+        from kfp.v2.dsl import *
+        from typing import *
+
+        def knn(features: Input[Dataset],
+                labels: Input[Dataset],
+                param_grid: str,
+                num_folds: int,
+                scoring: str,
+                best_model: Output[Model],
+                best_params: Output[Dataset],
+                best_score: Output[Metrics],
+                cv_results: Output[Dataset],
+               ) -> float:
+            from sklearn.neighbors import KNeighborsClassifier
+            import pandas as pd
+            from sklearn.metrics import roc_auc_score
+            from sklearn.model_selection import GridSearchCV
+            from pickle import dump
+            from ast import literal_eval
+
+            k_nn = KNeighborsClassifier()
+            param_grid = literal_eval(param_grid)
+            grid_search = GridSearchCV(k_nn,
+                                       param_grid=param_grid,
+                                       scoring=scoring,
+                                       refit=True, # Use the whole dataset to retrain after finding the best params
+                                       cv=num_folds,
+                                       verbose=2,
+                                      )
+
+            X, y = pd.read_csv(features.path).values, pd.read_csv(labels.path).values
+            grid_search.fit(X, y)
+
+            pd.DataFrame(grid_search.cv_results_).to_csv(cv_results.path, index=False)
+            best_params_ = grid_search.best_params_
+            for key, value in best_params_.items():
+                best_params_[key] = [value]
+            pd.DataFrame(best_params_).to_csv(best_params.path, index=False)
+            dump(grid_search.best_estimator_, open(best_model.path, 'wb'))
+            best_score.log_metric(scoring, grid_search.best_score_)
+
+            return grid_search.best_score_
+
+      - --executor_input
+      - '{{$}}'
+      - --function_to_execute
+      - knn
+      command: [/kfp-launcher/launch, --mlmd_server_address, $(METADATA_GRPC_SERVICE_HOST),
+        --mlmd_server_port, $(METADATA_GRPC_SERVICE_PORT), --runtime_info_json, $(KFP_V2_RUNTIME_INFO),
+        --container_image, $(KFP_V2_IMAGE), --task_name, knn, --pipeline_name, '{{inputs.parameters.pipeline-name}}',
+        --run_id, $(KFP_RUN_ID), --run_resource, workflows.argoproj.io/$(WORKFLOW_ID),
+        --namespace, $(KFP_NAMESPACE), --pod_name, $(KFP_POD_NAME), --pod_uid, $(KFP_POD_UID),
+        --pipeline_root, '{{inputs.parameters.pipeline-root}}', --enable_caching,
+        $(ENABLE_CACHING), --, 'num_folds={{inputs.parameters.num_folds}}', 'param_grid={{inputs.parameters.knn_params}}',
+        'scoring={{inputs.parameters.scoring}}', --]
+      env:
+      - name: KFP_POD_NAME
+        valueFrom:
+          fieldRef: {fieldPath: metadata.name}
+      - name: KFP_POD_UID
+        valueFrom:
+          fieldRef: {fieldPath: metadata.uid}
+      - name: KFP_NAMESPACE
+        valueFrom:
+          fieldRef: {fieldPath: metadata.namespace}
+      - name: WORKFLOW_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''workflows.argoproj.io/workflow'']'}
+      - name: KFP_RUN_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipeline/runid'']'}
+      - name: ENABLE_CACHING
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipelines.kubeflow.org/enable_caching'']'}
+      - {name: KFP_V2_IMAGE, value: 'yinanli617/customer-churn:latest'}
+      - {name: KFP_V2_RUNTIME_INFO, value: '{"inputParameters": {"num_folds": {"type":
+          "INT"}, "param_grid": {"type": "STRING"}, "scoring": {"type": "STRING"}},
+          "inputArtifacts": {"features": {"metadataPath": "/tmp/inputs/features/data",
+          "schemaTitle": "system.Dataset", "instanceSchema": "", "schemaVersion":
+          "0.0.1"}, "labels": {"metadataPath": "/tmp/inputs/labels/data", "schemaTitle":
+          "system.Dataset", "instanceSchema": "", "schemaVersion": "0.0.1"}}, "outputParameters":
+          {"Output": {"type": "DOUBLE", "path": "/tmp/outputs/Output/data"}}, "outputArtifacts":
+          {"best_model": {"schemaTitle": "system.Model", "instanceSchema": "", "schemaVersion":
+          "0.0.1", "metadataPath": "/tmp/outputs/best_model/data"}, "best_params":
+          {"schemaTitle": "system.Dataset", "instanceSchema": "", "schemaVersion":
+          "0.0.1", "metadataPath": "/tmp/outputs/best_params/data"}, "best_score":
+          {"schemaTitle": "system.Metrics", "instanceSchema": "", "schemaVersion":
+          "0.0.1", "metadataPath": "/tmp/outputs/best_score/data"}, "cv_results":
+          {"schemaTitle": "system.Dataset", "instanceSchema": "", "schemaVersion":
+          "0.0.1", "metadataPath": "/tmp/outputs/cv_results/data"}}}'}
+      envFrom:
+      - configMapRef: {name: metadata-grpc-configmap, optional: true}
+      image: yinanli617/customer-churn:latest
+      volumeMounts:
+      - {mountPath: /kfp-launcher, name: kfp-launcher}
+    inputs:
+      parameters:
+      - {name: knn_params}
+      - {name: num_folds}
+      - {name: pipeline-name}
+      - {name: pipeline-root}
+      - {name: scoring}
+      artifacts:
+      - {name: preprocessing-features, path: /tmp/inputs/features/data}
+      - {name: preprocessing-labels, path: /tmp/inputs/labels/data}
+    outputs:
+      parameters:
+      - name: knn-Output
+        valueFrom: {path: /tmp/outputs/Output/data}
+      artifacts:
+      - {name: knn-Output, path: /tmp/outputs/Output/data}
+      - {name: knn-best_model, path: /tmp/outputs/best_model/data}
+      - {name: knn-best_params, path: /tmp/outputs/best_params/data}
+      - {name: knn-best_score, path: /tmp/outputs/best_score/data}
+      - {name: knn-cv_results, path: /tmp/outputs/cv_results/data}
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/component_ref: '{}'
+        pipelines.kubeflow.org/arguments.parameters: '{"num_folds": "{{inputs.parameters.num_folds}}",
+          "param_grid": "{{inputs.parameters.knn_params}}", "scoring": "{{inputs.parameters.scoring}}"}'
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.6
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/enable_caching: "true"
+    initContainers:
+    - command: [launcher, --copy, /kfp-launcher/launch]
+      image: gcr.io/ml-pipeline/kfp-launcher:1.8.6
+      name: kfp-launcher
+      mirrorVolumeMounts: true
+    volumes:
+    - {name: kfp-launcher}
+  - name: logistic-regression
+    container:
+      args:
+      - sh
+      - -c
+      - |2
+
+        if ! [ -x "$(command -v pip)" ]; then
+            python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+        fi
+
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'kfp==1.8.6' && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp -d)
+        printf "%s" "$0" > "$program_path/ephemeral_component.py"
+        python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+      - |2+
+
+        import kfp
+        from kfp.v2 import dsl
+        from kfp.v2.dsl import *
+        from typing import *
+
+        def logistic_regression(features: Input[Dataset],
+                                labels: Input[Dataset],
+                                param_grid: str,
+                                num_folds: int,
+                                scoring: str,
+                                seed: int,
+                                best_model: Output[Model],
+                                best_params: Output[Dataset],
+                                best_score: Output[Metrics],
+                                cv_results: Output[Dataset],
+                               ) -> float:
+            from sklearn.linear_model import LogisticRegression
+            import pandas as pd
+            from sklearn.metrics import roc_auc_score
+            from sklearn.model_selection import GridSearchCV
+            from pickle import dump
+            from ast import literal_eval
+
+            lr = LogisticRegression(solver='liblinear',
+                                    random_state=seed,
+                                   )
+            param_grid = literal_eval(param_grid)
+            grid_search = GridSearchCV(lr,
+                                       param_grid=param_grid,
+                                       scoring=scoring,
+                                       refit=True, # Use the whole dataset to retrain after finding the best params
+                                       cv=num_folds,
+                                       verbose=2,
+                                      )
+
+            X, y = pd.read_csv(features.path).values, pd.read_csv(labels.path).values
+            grid_search.fit(X, y)
+
+            pd.DataFrame(grid_search.cv_results_).to_csv(cv_results.path, index=False)
+            best_params_ = grid_search.best_params_
+            for key, value in best_params_.items():
+                best_params_[key] = [value]
+            pd.DataFrame(best_params_).to_csv(best_params.path, index=False)
+            dump(grid_search.best_estimator_, open(best_model.path, 'wb'))
+            best_score.log_metric(scoring, grid_search.best_score_)
+
+            return grid_search.best_score_
+
+      - --executor_input
+      - '{{$}}'
+      - --function_to_execute
+      - logistic_regression
+      command: [/kfp-launcher/launch, --mlmd_server_address, $(METADATA_GRPC_SERVICE_HOST),
+        --mlmd_server_port, $(METADATA_GRPC_SERVICE_PORT), --runtime_info_json, $(KFP_V2_RUNTIME_INFO),
+        --container_image, $(KFP_V2_IMAGE), --task_name, logistic-regression, --pipeline_name,
+        '{{inputs.parameters.pipeline-name}}', --run_id, $(KFP_RUN_ID), --run_resource,
+        workflows.argoproj.io/$(WORKFLOW_ID), --namespace, $(KFP_NAMESPACE), --pod_name,
+        $(KFP_POD_NAME), --pod_uid, $(KFP_POD_UID), --pipeline_root, '{{inputs.parameters.pipeline-root}}',
+        --enable_caching, $(ENABLE_CACHING), --, 'num_folds={{inputs.parameters.num_folds}}',
+        'param_grid={{inputs.parameters.logistic_regression_params}}', 'scoring={{inputs.parameters.scoring}}',
+        'seed={{inputs.parameters.seed}}', --]
+      env:
+      - name: KFP_POD_NAME
+        valueFrom:
+          fieldRef: {fieldPath: metadata.name}
+      - name: KFP_POD_UID
+        valueFrom:
+          fieldRef: {fieldPath: metadata.uid}
+      - name: KFP_NAMESPACE
+        valueFrom:
+          fieldRef: {fieldPath: metadata.namespace}
+      - name: WORKFLOW_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''workflows.argoproj.io/workflow'']'}
+      - name: KFP_RUN_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipeline/runid'']'}
+      - name: ENABLE_CACHING
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipelines.kubeflow.org/enable_caching'']'}
+      - {name: KFP_V2_IMAGE, value: 'yinanli617/customer-churn:latest'}
+      - {name: KFP_V2_RUNTIME_INFO, value: '{"inputParameters": {"num_folds": {"type":
+          "INT"}, "param_grid": {"type": "STRING"}, "scoring": {"type": "STRING"},
+          "seed": {"type": "INT"}}, "inputArtifacts": {"features": {"metadataPath":
+          "/tmp/inputs/features/data", "schemaTitle": "system.Dataset", "instanceSchema":
+          "", "schemaVersion": "0.0.1"}, "labels": {"metadataPath": "/tmp/inputs/labels/data",
+          "schemaTitle": "system.Dataset", "instanceSchema": "", "schemaVersion":
+          "0.0.1"}}, "outputParameters": {"Output": {"type": "DOUBLE", "path": "/tmp/outputs/Output/data"}},
+          "outputArtifacts": {"best_model": {"schemaTitle": "system.Model", "instanceSchema":
+          "", "schemaVersion": "0.0.1", "metadataPath": "/tmp/outputs/best_model/data"},
+          "best_params": {"schemaTitle": "system.Dataset", "instanceSchema": "", "schemaVersion":
+          "0.0.1", "metadataPath": "/tmp/outputs/best_params/data"}, "best_score":
+          {"schemaTitle": "system.Metrics", "instanceSchema": "", "schemaVersion":
+          "0.0.1", "metadataPath": "/tmp/outputs/best_score/data"}, "cv_results":
+          {"schemaTitle": "system.Dataset", "instanceSchema": "", "schemaVersion":
+          "0.0.1", "metadataPath": "/tmp/outputs/cv_results/data"}}}'}
+      envFrom:
+      - configMapRef: {name: metadata-grpc-configmap, optional: true}
+      image: yinanli617/customer-churn:latest
+      volumeMounts:
+      - {mountPath: /kfp-launcher, name: kfp-launcher}
+    inputs:
+      parameters:
+      - {name: logistic_regression_params}
+      - {name: num_folds}
+      - {name: pipeline-name}
+      - {name: pipeline-root}
+      - {name: scoring}
+      - {name: seed}
+      artifacts:
+      - {name: preprocessing-features, path: /tmp/inputs/features/data}
+      - {name: preprocessing-labels, path: /tmp/inputs/labels/data}
+    outputs:
+      parameters:
+      - name: logistic-regression-Output
+        valueFrom: {path: /tmp/outputs/Output/data}
+      artifacts:
+      - {name: logistic-regression-Output, path: /tmp/outputs/Output/data}
+      - {name: logistic-regression-best_model, path: /tmp/outputs/best_model/data}
+      - {name: logistic-regression-best_params, path: /tmp/outputs/best_params/data}
+      - {name: logistic-regression-best_score, path: /tmp/outputs/best_score/data}
+      - {name: logistic-regression-cv_results, path: /tmp/outputs/cv_results/data}
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/component_ref: '{}'
+        pipelines.kubeflow.org/arguments.parameters: '{"num_folds": "{{inputs.parameters.num_folds}}",
+          "param_grid": "{{inputs.parameters.logistic_regression_params}}", "scoring":
+          "{{inputs.parameters.scoring}}", "seed": "{{inputs.parameters.seed}}"}'
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.6
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/enable_caching: "true"
+    initContainers:
+    - command: [launcher, --copy, /kfp-launcher/launch]
+      image: gcr.io/ml-pipeline/kfp-launcher:1.8.6
+      name: kfp-launcher
+      mirrorVolumeMounts: true
+    volumes:
+    - {name: kfp-launcher}
+  - name: predict-test-data
+    container:
+      args:
+      - sh
+      - -c
+      - |2
+
+        if ! [ -x "$(command -v pip)" ]; then
+            python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+        fi
+
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'kfp==1.8.6' && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp -d)
+        printf "%s" "$0" > "$program_path/ephemeral_component.py"
+        python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+      - |2+
+
+        import kfp
+        from kfp.v2 import dsl
+        from kfp.v2.dsl import *
+        from typing import *
+
+        def predict_test_data(test_csv: Input[Dataset],
+                              scaler_obj: Input[Model],
+                              encoder_obj: Input[Model],
+                              lr_model: Input[Model],
+                              rf_model: Input[Model],
+                              knn_model: Input[Model],
+                              lr_score: float,
+                              rf_score: float,
+                              knn_score: float,
+                              categorical_features: str,
+                              numerical_features: str,
+                              target: str,
+                              metrics: Output[Metrics],
+                             ):
+            import pandas as pd
+            import numpy as np
+            from pickle import load
+            from ast import literal_eval
+            from sklearn.metrics import accuracy_score, f1_score, recall_score, precision_score, roc_auc_score
+
+            categorical_features = literal_eval(categorical_features)
+            numerical_features = literal_eval(numerical_features)
+
+            df = pd.read_csv(test_csv.path)
+            X_cat = df[categorical_features]
+            X_num = df[numerical_features]
+            y = df[target]
+
+            scaler = load(open(scaler_obj.path, 'rb'))
+            X_num = scaler.transform(X_num)
+            encoder = load(open(encoder_obj.path, 'rb'))
+            X_cat = encoder.transform(X_cat).toarray()
+            X = np.concatenate([X_num, X_cat], axis=1)
+
+            models_dict = {lr_score: lr_model,
+                           rf_score: rf_model,
+                           knn_score: knn_model,
+                          }
+            best_model = models_dict[max(models_dict.keys())]
+            model = load(open(best_model.path, 'rb'))
+
+            y_pred = model.predict(X)
+            y_proba = model.predict_proba(X)[:, 1]
+
+            accuracy = accuracy_score(y, y_pred)
+            f1 = f1_score(y, y_pred)
+            recall = recall_score(y, y_pred)
+            precision = precision_score(y, y_pred)
+            roc_auc = roc_auc_score(y, y_proba)
+
+            metrics.log_metric('Accuracy', accuracy)
+            metrics.log_metric('F1 score', f1)
+            metrics.log_metric('Recall', recall)
+            metrics.log_metric('Precision', precision)
+            metrics.log_metric('ROC_AUC', roc_auc)
+
+      - --executor_input
+      - '{{$}}'
+      - --function_to_execute
+      - predict_test_data
+      command: [/kfp-launcher/launch, --mlmd_server_address, $(METADATA_GRPC_SERVICE_HOST),
+        --mlmd_server_port, $(METADATA_GRPC_SERVICE_PORT), --runtime_info_json, $(KFP_V2_RUNTIME_INFO),
+        --container_image, $(KFP_V2_IMAGE), --task_name, predict-test-data, --pipeline_name,
+        '{{inputs.parameters.pipeline-name}}', --run_id, $(KFP_RUN_ID), --run_resource,
+        workflows.argoproj.io/$(WORKFLOW_ID), --namespace, $(KFP_NAMESPACE), --pod_name,
+        $(KFP_POD_NAME), --pod_uid, $(KFP_POD_UID), --pipeline_root, '{{inputs.parameters.pipeline-root}}',
+        --enable_caching, $(ENABLE_CACHING), --, 'categorical_features={{inputs.parameters.categorical_features}}',
+        'knn_score={{inputs.parameters.knn-Output}}', 'lr_score={{inputs.parameters.logistic-regression-Output}}',
+        'numerical_features={{inputs.parameters.numerical_features}}', 'rf_score={{inputs.parameters.random-forests-Output}}',
+        'target={{inputs.parameters.target}}', --]
+      env:
+      - name: KFP_POD_NAME
+        valueFrom:
+          fieldRef: {fieldPath: metadata.name}
+      - name: KFP_POD_UID
+        valueFrom:
+          fieldRef: {fieldPath: metadata.uid}
+      - name: KFP_NAMESPACE
+        valueFrom:
+          fieldRef: {fieldPath: metadata.namespace}
+      - name: WORKFLOW_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''workflows.argoproj.io/workflow'']'}
+      - name: KFP_RUN_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipeline/runid'']'}
+      - name: ENABLE_CACHING
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipelines.kubeflow.org/enable_caching'']'}
+      - {name: KFP_V2_IMAGE, value: 'yinanli617/customer-churn:latest'}
+      - {name: KFP_V2_RUNTIME_INFO, value: '{"inputParameters": {"categorical_features":
+          {"type": "STRING"}, "knn_score": {"type": "DOUBLE"}, "lr_score": {"type":
+          "DOUBLE"}, "numerical_features": {"type": "STRING"}, "rf_score": {"type":
+          "DOUBLE"}, "target": {"type": "STRING"}}, "inputArtifacts": {"encoder_obj":
+          {"metadataPath": "/tmp/inputs/encoder_obj/data", "schemaTitle": "system.Model",
+          "instanceSchema": "", "schemaVersion": "0.0.1"}, "knn_model": {"metadataPath":
+          "/tmp/inputs/knn_model/data", "schemaTitle": "system.Model", "instanceSchema":
+          "", "schemaVersion": "0.0.1"}, "lr_model": {"metadataPath": "/tmp/inputs/lr_model/data",
+          "schemaTitle": "system.Model", "instanceSchema": "", "schemaVersion": "0.0.1"},
+          "rf_model": {"metadataPath": "/tmp/inputs/rf_model/data", "schemaTitle":
+          "system.Model", "instanceSchema": "", "schemaVersion": "0.0.1"}, "scaler_obj":
+          {"metadataPath": "/tmp/inputs/scaler_obj/data", "schemaTitle": "system.Model",
+          "instanceSchema": "", "schemaVersion": "0.0.1"}, "test_csv": {"metadataPath":
+          "/tmp/inputs/test_csv/data", "schemaTitle": "system.Dataset", "instanceSchema":
+          "", "schemaVersion": "0.0.1"}}, "outputParameters": {}, "outputArtifacts":
+          {"metrics": {"schemaTitle": "system.Metrics", "instanceSchema": "", "schemaVersion":
+          "0.0.1", "metadataPath": "/tmp/outputs/metrics/data"}}}'}
+      envFrom:
+      - configMapRef: {name: metadata-grpc-configmap, optional: true}
+      image: yinanli617/customer-churn:latest
+      volumeMounts:
+      - {mountPath: /kfp-launcher, name: kfp-launcher}
+    inputs:
+      parameters:
+      - {name: categorical_features}
+      - {name: knn-Output}
+      - {name: logistic-regression-Output}
+      - {name: numerical_features}
+      - {name: pipeline-name}
+      - {name: pipeline-root}
+      - {name: random-forests-Output}
+      - {name: target}
+      artifacts:
+      - {name: preprocessing-encoder_obj, path: /tmp/inputs/encoder_obj/data}
+      - {name: knn-best_model, path: /tmp/inputs/knn_model/data}
+      - {name: logistic-regression-best_model, path: /tmp/inputs/lr_model/data}
+      - {name: random-forests-best_model, path: /tmp/inputs/rf_model/data}
+      - {name: preprocessing-scaler_obj, path: /tmp/inputs/scaler_obj/data}
+      - {name: train-test-split-test_csv, path: /tmp/inputs/test_csv/data}
+    outputs:
+      artifacts:
+      - {name: predict-test-data-metrics, path: /tmp/outputs/metrics/data}
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/component_ref: '{}'
+        pipelines.kubeflow.org/arguments.parameters: '{"categorical_features": "{{inputs.parameters.categorical_features}}",
+          "knn_score": "{{inputs.parameters.knn-Output}}", "lr_score": "{{inputs.parameters.logistic-regression-Output}}",
+          "numerical_features": "{{inputs.parameters.numerical_features}}", "rf_score":
+          "{{inputs.parameters.random-forests-Output}}", "target": "{{inputs.parameters.target}}"}'
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.6
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/enable_caching: "true"
+    initContainers:
+    - command: [launcher, --copy, /kfp-launcher/launch]
+      image: gcr.io/ml-pipeline/kfp-launcher:1.8.6
+      name: kfp-launcher
+      mirrorVolumeMounts: true
+    volumes:
+    - {name: kfp-launcher}
+  - name: preprocessing
+    container:
+      args:
+      - sh
+      - -c
+      - |2
+
+        if ! [ -x "$(command -v pip)" ]; then
+            python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+        fi
+
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'kfp==1.8.6' && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp -d)
+        printf "%s" "$0" > "$program_path/ephemeral_component.py"
+        python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+      - "\nimport kfp\nfrom kfp.v2 import dsl\nfrom kfp.v2.dsl import *\nfrom typing\
+        \ import *\n\ndef preprocessing(input_csv: Input[Dataset],\n             \
+        \     numerical_features: str,\n                  categorical_features: str,\n\
+        \                  target: str,\n                  features: Output[Dataset],\n\
+        \                  labels: Output[Dataset],\n                  scaler_obj:\
+        \ Output[Model],\n                  encoder_obj: Output[Model],\n        \
+        \         ):\n    import pandas as pd\n    import numpy as np\n    from sklearn.preprocessing\
+        \ import OneHotEncoder, StandardScaler\n    from pickle import dump\n    from\
+        \ ast import literal_eval\n\n    # The features are stored as strings. We\
+        \ do the trick with literal_eval to convert them to the\n    # correct format\
+        \ (list)\n    categorical_features = literal_eval(categorical_features)\n\
+        \    numerical_features = literal_eval(numerical_features)\n\n    df = pd.read_csv(input_csv.path)\n\
+        \    X_cat = df[categorical_features]\n    X_num = df[numerical_features]\n\
+        \    y = df[target]\n\n    scaler = StandardScaler()\n    X_num = scaler.fit_transform(X_num)\n\
+        \    encoder = OneHotEncoder()\n    X_cat = encoder.fit_transform(X_cat).toarray()\n\
+        \    X = np.concatenate([X_num, X_cat], axis=1)\n\n    pd.DataFrame(X).to_csv(features.path,\
+        \ index=False)\n    y.to_csv(labels.path, index=False)\n    # To prevent leakage,\
+        \ the scaler and the encoder should not see the test dataset.\n    # We save\
+        \ the scaler and encoder that have been fit to the training dataset and \n\
+        \    # use it directly on the test dataset later on.\n    dump(scaler, open(scaler_obj.path,\
+        \ 'wb'))\n    dump(encoder, open(encoder_obj.path, 'wb'))\n\n"
+      - --executor_input
+      - '{{$}}'
+      - --function_to_execute
+      - preprocessing
+      command: [/kfp-launcher/launch, --mlmd_server_address, $(METADATA_GRPC_SERVICE_HOST),
+        --mlmd_server_port, $(METADATA_GRPC_SERVICE_PORT), --runtime_info_json, $(KFP_V2_RUNTIME_INFO),
+        --container_image, $(KFP_V2_IMAGE), --task_name, preprocessing, --pipeline_name,
+        '{{inputs.parameters.pipeline-name}}', --run_id, $(KFP_RUN_ID), --run_resource,
+        workflows.argoproj.io/$(WORKFLOW_ID), --namespace, $(KFP_NAMESPACE), --pod_name,
+        $(KFP_POD_NAME), --pod_uid, $(KFP_POD_UID), --pipeline_root, '{{inputs.parameters.pipeline-root}}',
+        --enable_caching, $(ENABLE_CACHING), --, 'categorical_features={{inputs.parameters.categorical_features}}',
+        'numerical_features={{inputs.parameters.numerical_features}}', 'target={{inputs.parameters.target}}',
+        --]
+      env:
+      - name: KFP_POD_NAME
+        valueFrom:
+          fieldRef: {fieldPath: metadata.name}
+      - name: KFP_POD_UID
+        valueFrom:
+          fieldRef: {fieldPath: metadata.uid}
+      - name: KFP_NAMESPACE
+        valueFrom:
+          fieldRef: {fieldPath: metadata.namespace}
+      - name: WORKFLOW_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''workflows.argoproj.io/workflow'']'}
+      - name: KFP_RUN_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipeline/runid'']'}
+      - name: ENABLE_CACHING
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipelines.kubeflow.org/enable_caching'']'}
+      - {name: KFP_V2_IMAGE, value: 'yinanli617/customer-churn:latest'}
+      - {name: KFP_V2_RUNTIME_INFO, value: '{"inputParameters": {"categorical_features":
+          {"type": "STRING"}, "numerical_features": {"type": "STRING"}, "target":
+          {"type": "STRING"}}, "inputArtifacts": {"input_csv": {"metadataPath": "/tmp/inputs/input_csv/data",
+          "schemaTitle": "system.Dataset", "instanceSchema": "", "schemaVersion":
+          "0.0.1"}}, "outputParameters": {}, "outputArtifacts": {"encoder_obj": {"schemaTitle":
+          "system.Model", "instanceSchema": "", "schemaVersion": "0.0.1", "metadataPath":
+          "/tmp/outputs/encoder_obj/data"}, "features": {"schemaTitle": "system.Dataset",
+          "instanceSchema": "", "schemaVersion": "0.0.1", "metadataPath": "/tmp/outputs/features/data"},
+          "labels": {"schemaTitle": "system.Dataset", "instanceSchema": "", "schemaVersion":
+          "0.0.1", "metadataPath": "/tmp/outputs/labels/data"}, "scaler_obj": {"schemaTitle":
+          "system.Model", "instanceSchema": "", "schemaVersion": "0.0.1", "metadataPath":
+          "/tmp/outputs/scaler_obj/data"}}}'}
+      envFrom:
+      - configMapRef: {name: metadata-grpc-configmap, optional: true}
+      image: yinanli617/customer-churn:latest
+      volumeMounts:
+      - {mountPath: /kfp-launcher, name: kfp-launcher}
+    inputs:
+      parameters:
+      - {name: categorical_features}
+      - {name: numerical_features}
+      - {name: pipeline-name}
+      - {name: pipeline-root}
+      - {name: target}
+      artifacts:
+      - {name: train-test-split-train_csv, path: /tmp/inputs/input_csv/data}
+    outputs:
+      artifacts:
+      - {name: preprocessing-encoder_obj, path: /tmp/outputs/encoder_obj/data}
+      - {name: preprocessing-features, path: /tmp/outputs/features/data}
+      - {name: preprocessing-labels, path: /tmp/outputs/labels/data}
+      - {name: preprocessing-scaler_obj, path: /tmp/outputs/scaler_obj/data}
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/component_ref: '{}'
+        pipelines.kubeflow.org/arguments.parameters: '{"categorical_features": "{{inputs.parameters.categorical_features}}",
+          "numerical_features": "{{inputs.parameters.numerical_features}}", "target":
+          "{{inputs.parameters.target}}"}'
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.6
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/enable_caching: "true"
+    initContainers:
+    - command: [launcher, --copy, /kfp-launcher/launch]
+      image: gcr.io/ml-pipeline/kfp-launcher:1.8.6
+      name: kfp-launcher
+      mirrorVolumeMounts: true
+    volumes:
+    - {name: kfp-launcher}
+  - name: random-forests
+    container:
+      args:
+      - sh
+      - -c
+      - |2
+
+        if ! [ -x "$(command -v pip)" ]; then
+            python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+        fi
+
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'kfp==1.8.6' && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp -d)
+        printf "%s" "$0" > "$program_path/ephemeral_component.py"
+        python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+      - |2+
+
+        import kfp
+        from kfp.v2 import dsl
+        from kfp.v2.dsl import *
+        from typing import *
+
+        def random_forests(features: Input[Dataset],
+                           labels: Input[Dataset],
+                           param_grid: str,
+                           num_folds: int,
+                           scoring: str,
+                           seed: int,
+                           best_model: Output[Model],
+                           best_params: Output[Dataset],
+                           best_score: Output[Metrics],
+                           cv_results: Output[Dataset],
+                          ) -> float:
+            from sklearn.ensemble import RandomForestClassifier
+            import pandas as pd
+            from sklearn.metrics import roc_auc_score
+            from sklearn.model_selection import GridSearchCV
+            from pickle import dump
+            from ast import literal_eval
+
+            rf = RandomForestClassifier(random_state=seed)
+            param_grid = literal_eval(param_grid)
+            grid_search = GridSearchCV(rf,
+                                       param_grid=param_grid,
+                                       scoring=scoring,
+                                       refit=True, # Use the whole dataset to retrain after finding the best params
+                                       cv=num_folds,
+                                       verbose=2,
+                                      )
+
+            X, y = pd.read_csv(features.path).values, pd.read_csv(labels.path).values
+            grid_search.fit(X, y)
+
+            pd.DataFrame(grid_search.cv_results_).to_csv(cv_results.path, index=False)
+            best_params_ = grid_search.best_params_
+            for key, value in best_params_.items():
+                best_params_[key] = [value]
+            pd.DataFrame(best_params_).to_csv(best_params.path, index=False)
+            dump(grid_search.best_estimator_, open(best_model.path, 'wb'))
+            best_score.log_metric(scoring, grid_search.best_score_)
+
+            return grid_search.best_score_
+
+      - --executor_input
+      - '{{$}}'
+      - --function_to_execute
+      - random_forests
+      command: [/kfp-launcher/launch, --mlmd_server_address, $(METADATA_GRPC_SERVICE_HOST),
+        --mlmd_server_port, $(METADATA_GRPC_SERVICE_PORT), --runtime_info_json, $(KFP_V2_RUNTIME_INFO),
+        --container_image, $(KFP_V2_IMAGE), --task_name, random-forests, --pipeline_name,
+        '{{inputs.parameters.pipeline-name}}', --run_id, $(KFP_RUN_ID), --run_resource,
+        workflows.argoproj.io/$(WORKFLOW_ID), --namespace, $(KFP_NAMESPACE), --pod_name,
+        $(KFP_POD_NAME), --pod_uid, $(KFP_POD_UID), --pipeline_root, '{{inputs.parameters.pipeline-root}}',
+        --enable_caching, $(ENABLE_CACHING), --, 'num_folds={{inputs.parameters.num_folds}}',
+        'param_grid={{inputs.parameters.random_forests_params}}', 'scoring={{inputs.parameters.scoring}}',
+        'seed={{inputs.parameters.seed}}', --]
+      env:
+      - name: KFP_POD_NAME
+        valueFrom:
+          fieldRef: {fieldPath: metadata.name}
+      - name: KFP_POD_UID
+        valueFrom:
+          fieldRef: {fieldPath: metadata.uid}
+      - name: KFP_NAMESPACE
+        valueFrom:
+          fieldRef: {fieldPath: metadata.namespace}
+      - name: WORKFLOW_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''workflows.argoproj.io/workflow'']'}
+      - name: KFP_RUN_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipeline/runid'']'}
+      - name: ENABLE_CACHING
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipelines.kubeflow.org/enable_caching'']'}
+      - {name: KFP_V2_IMAGE, value: 'yinanli617/customer-churn:latest'}
+      - {name: KFP_V2_RUNTIME_INFO, value: '{"inputParameters": {"num_folds": {"type":
+          "INT"}, "param_grid": {"type": "STRING"}, "scoring": {"type": "STRING"},
+          "seed": {"type": "INT"}}, "inputArtifacts": {"features": {"metadataPath":
+          "/tmp/inputs/features/data", "schemaTitle": "system.Dataset", "instanceSchema":
+          "", "schemaVersion": "0.0.1"}, "labels": {"metadataPath": "/tmp/inputs/labels/data",
+          "schemaTitle": "system.Dataset", "instanceSchema": "", "schemaVersion":
+          "0.0.1"}}, "outputParameters": {"Output": {"type": "DOUBLE", "path": "/tmp/outputs/Output/data"}},
+          "outputArtifacts": {"best_model": {"schemaTitle": "system.Model", "instanceSchema":
+          "", "schemaVersion": "0.0.1", "metadataPath": "/tmp/outputs/best_model/data"},
+          "best_params": {"schemaTitle": "system.Dataset", "instanceSchema": "", "schemaVersion":
+          "0.0.1", "metadataPath": "/tmp/outputs/best_params/data"}, "best_score":
+          {"schemaTitle": "system.Metrics", "instanceSchema": "", "schemaVersion":
+          "0.0.1", "metadataPath": "/tmp/outputs/best_score/data"}, "cv_results":
+          {"schemaTitle": "system.Dataset", "instanceSchema": "", "schemaVersion":
+          "0.0.1", "metadataPath": "/tmp/outputs/cv_results/data"}}}'}
+      envFrom:
+      - configMapRef: {name: metadata-grpc-configmap, optional: true}
+      image: yinanli617/customer-churn:latest
+      volumeMounts:
+      - {mountPath: /kfp-launcher, name: kfp-launcher}
+    inputs:
+      parameters:
+      - {name: num_folds}
+      - {name: pipeline-name}
+      - {name: pipeline-root}
+      - {name: random_forests_params}
+      - {name: scoring}
+      - {name: seed}
+      artifacts:
+      - {name: preprocessing-features, path: /tmp/inputs/features/data}
+      - {name: preprocessing-labels, path: /tmp/inputs/labels/data}
+    outputs:
+      parameters:
+      - name: random-forests-Output
+        valueFrom: {path: /tmp/outputs/Output/data}
+      artifacts:
+      - {name: random-forests-Output, path: /tmp/outputs/Output/data}
+      - {name: random-forests-best_model, path: /tmp/outputs/best_model/data}
+      - {name: random-forests-best_params, path: /tmp/outputs/best_params/data}
+      - {name: random-forests-best_score, path: /tmp/outputs/best_score/data}
+      - {name: random-forests-cv_results, path: /tmp/outputs/cv_results/data}
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/component_ref: '{}'
+        pipelines.kubeflow.org/arguments.parameters: '{"num_folds": "{{inputs.parameters.num_folds}}",
+          "param_grid": "{{inputs.parameters.random_forests_params}}", "scoring":
+          "{{inputs.parameters.scoring}}", "seed": "{{inputs.parameters.seed}}"}'
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.6
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/enable_caching: "true"
+    initContainers:
+    - command: [launcher, --copy, /kfp-launcher/launch]
+      image: gcr.io/ml-pipeline/kfp-launcher:1.8.6
+      name: kfp-launcher
+      mirrorVolumeMounts: true
+    volumes:
+    - {name: kfp-launcher}
+  - name: train-test-split
+    container:
+      args:
+      - sh
+      - -c
+      - |2
+
+        if ! [ -x "$(command -v pip)" ]; then
+            python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+        fi
+
+        PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'kfp==1.8.6' && "$0" "$@"
+      - sh
+      - -ec
+      - |
+        program_path=$(mktemp -d)
+        printf "%s" "$0" > "$program_path/ephemeral_component.py"
+        python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+      - |2+
+
+        import kfp
+        from kfp.v2 import dsl
+        from kfp.v2.dsl import *
+        from typing import *
+
+        def train_test_split(input_csv: Input[Dataset],
+                             seed: int,
+                             target: str,
+                             train_csv: Output[Dataset],
+                             test_csv: Output[Dataset]
+                            ):
+            from sklearn.model_selection import train_test_split
+            import pandas as pd
+
+            df = pd.read_csv(input_csv.path)
+            train, test = train_test_split(df,
+                                           test_size=0.2,
+                                           shuffle=True,
+                                           random_state=seed,
+                                           stratify=df[target],
+                                          )
+            train_df = pd.DataFrame(train)
+            train_df.columns = df.columns
+            test_df = pd.DataFrame(test)
+            test_df.columns = df.columns
+
+            train_df.to_csv(train_csv.path, index=False)
+            test_df.to_csv(test_csv.path, index=False)
+
+      - --executor_input
+      - '{{$}}'
+      - --function_to_execute
+      - train_test_split
+      command: [/kfp-launcher/launch, --mlmd_server_address, $(METADATA_GRPC_SERVICE_HOST),
+        --mlmd_server_port, $(METADATA_GRPC_SERVICE_PORT), --runtime_info_json, $(KFP_V2_RUNTIME_INFO),
+        --container_image, $(KFP_V2_IMAGE), --task_name, train-test-split, --pipeline_name,
+        '{{inputs.parameters.pipeline-name}}', --run_id, $(KFP_RUN_ID), --run_resource,
+        workflows.argoproj.io/$(WORKFLOW_ID), --namespace, $(KFP_NAMESPACE), --pod_name,
+        $(KFP_POD_NAME), --pod_uid, $(KFP_POD_UID), --pipeline_root, '{{inputs.parameters.pipeline-root}}',
+        --enable_caching, $(ENABLE_CACHING), --, 'seed={{inputs.parameters.seed}}',
+        'target={{inputs.parameters.target}}', --]
+      env:
+      - name: KFP_POD_NAME
+        valueFrom:
+          fieldRef: {fieldPath: metadata.name}
+      - name: KFP_POD_UID
+        valueFrom:
+          fieldRef: {fieldPath: metadata.uid}
+      - name: KFP_NAMESPACE
+        valueFrom:
+          fieldRef: {fieldPath: metadata.namespace}
+      - name: WORKFLOW_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''workflows.argoproj.io/workflow'']'}
+      - name: KFP_RUN_ID
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipeline/runid'']'}
+      - name: ENABLE_CACHING
+        valueFrom:
+          fieldRef: {fieldPath: 'metadata.labels[''pipelines.kubeflow.org/enable_caching'']'}
+      - {name: KFP_V2_IMAGE, value: 'yinanli617/customer-churn:latest'}
+      - {name: KFP_V2_RUNTIME_INFO, value: '{"inputParameters": {"seed": {"type":
+          "INT"}, "target": {"type": "STRING"}}, "inputArtifacts": {"input_csv": {"metadataPath":
+          "/tmp/inputs/input_csv/data", "schemaTitle": "system.Dataset", "instanceSchema":
+          "", "schemaVersion": "0.0.1"}}, "outputParameters": {}, "outputArtifacts":
+          {"test_csv": {"schemaTitle": "system.Dataset", "instanceSchema": "", "schemaVersion":
+          "0.0.1", "metadataPath": "/tmp/outputs/test_csv/data"}, "train_csv": {"schemaTitle":
+          "system.Dataset", "instanceSchema": "", "schemaVersion": "0.0.1", "metadataPath":
+          "/tmp/outputs/train_csv/data"}}}'}
+      envFrom:
+      - configMapRef: {name: metadata-grpc-configmap, optional: true}
+      image: yinanli617/customer-churn:latest
+      volumeMounts:
+      - {mountPath: /kfp-launcher, name: kfp-launcher}
+    inputs:
+      parameters:
+      - {name: pipeline-name}
+      - {name: pipeline-root}
+      - {name: seed}
+      - {name: target}
+      artifacts:
+      - {name: download-csv-output_csv, path: /tmp/inputs/input_csv/data}
+    outputs:
+      artifacts:
+      - {name: train-test-split-test_csv, path: /tmp/outputs/test_csv/data}
+      - {name: train-test-split-train_csv, path: /tmp/outputs/train_csv/data}
+    metadata:
+      annotations:
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/component_ref: '{}'
+        pipelines.kubeflow.org/arguments.parameters: '{"seed": "{{inputs.parameters.seed}}",
+          "target": "{{inputs.parameters.target}}"}'
+      labels:
+        pipelines.kubeflow.org/kfp_sdk_version: 1.8.6
+        pipelines.kubeflow.org/pipeline-sdk-type: kfp
+        pipelines.kubeflow.org/v2_component: "true"
+        pipelines.kubeflow.org/enable_caching: "true"
+    initContainers:
+    - command: [launcher, --copy, /kfp-launcher/launch]
+      image: gcr.io/ml-pipeline/kfp-launcher:1.8.6
+      name: kfp-launcher
+      mirrorVolumeMounts: true
+    volumes:
+    - {name: kfp-launcher}
+  arguments:
+    parameters:
+    - {name: url}
+    - {name: num_folds}
+    - {name: target}
+    - {name: numerical_features}
+    - {name: categorical_features}
+    - {name: scoring}
+    - {name: logistic_regression_params}
+    - {name: random_forests_params}
+    - {name: knn_params}
+    - {name: seed}
+    - {name: pipeline-root, value: 'gs://kfp-yli/customer-churn'}
+    - {name: pipeline-name, value: pipeline/bank-customer-churn-pipeline}
+  serviceAccountName: pipeline-runner

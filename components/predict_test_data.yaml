@@ -1,0 +1,103 @@
+name: Predict test data
+inputs:
+- {name: test_csv, type: Dataset}
+- {name: scaler_obj, type: Model}
+- {name: encoder_obj, type: Model}
+- {name: lr_model, type: Model}
+- {name: rf_model, type: Model}
+- {name: knn_model, type: Model}
+- {name: lr_score, type: Float}
+- {name: rf_score, type: Float}
+- {name: knn_score, type: Float}
+- {name: categorical_features, type: String}
+- {name: numerical_features, type: String}
+- {name: target, type: String}
+outputs:
+- {name: metrics, type: Metrics}
+implementation:
+  container:
+    image: yinanli617/customer-churn:latest
+    command:
+    - sh
+    - -c
+    - |2
+
+      if ! [ -x "$(command -v pip)" ]; then
+          python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+      fi
+
+      PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'kfp==1.8.6' && "$0" "$@"
+    - sh
+    - -ec
+    - |
+      program_path=$(mktemp -d)
+      printf "%s" "$0" > "$program_path/ephemeral_component.py"
+      python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+    - |2+
+
+      import kfp
+      from kfp.v2 import dsl
+      from kfp.v2.dsl import *
+      from typing import *
+
+      def predict_test_data(test_csv: Input[Dataset],
+                            scaler_obj: Input[Model],
+                            encoder_obj: Input[Model],
+                            lr_model: Input[Model],
+                            rf_model: Input[Model],
+                            knn_model: Input[Model],
+                            lr_score: float,
+                            rf_score: float,
+                            knn_score: float,
+                            categorical_features: str,
+                            numerical_features: str,
+                            target: str,
+                            metrics: Output[Metrics],
+                           ):
+          import pandas as pd
+          import numpy as np
+          from pickle import load
+          from ast import literal_eval
+          from sklearn.metrics import accuracy_score, f1_score, recall_score, precision_score, roc_auc_score
+
+          categorical_features = literal_eval(categorical_features)
+          numerical_features = literal_eval(numerical_features)
+
+          df = pd.read_csv(test_csv.path)
+          X_cat = df[categorical_features]
+          X_num = df[numerical_features]
+          y = df[target]
+
+          scaler = load(open(scaler_obj.path, 'rb'))
+          X_num = scaler.transform(X_num)
+          encoder = load(open(encoder_obj.path, 'rb'))
+          X_cat = encoder.transform(X_cat).toarray()
+          X = np.concatenate([X_num, X_cat], axis=1)
+
+          models_dict = {lr_score: lr_model,
+                         rf_score: rf_model,
+                         knn_score: knn_model,
+                        }
+          best_model = models_dict[max(models_dict.keys())]
+          model = load(open(best_model.path, 'rb'))
+
+          y_pred = model.predict(X)
+          y_proba = model.predict_proba(X)[:, 1]
+
+          accuracy = accuracy_score(y, y_pred)
+          f1 = f1_score(y, y_pred)
+          recall = recall_score(y, y_pred)
+          precision = precision_score(y, y_pred)
+          roc_auc = roc_auc_score(y, y_proba)
+
+          metrics.log_metric('Accuracy', accuracy)
+          metrics.log_metric('F1 score', f1)
+          metrics.log_metric('Recall', recall)
+          metrics.log_metric('Precision', precision)
+          metrics.log_metric('ROC_AUC', roc_auc)
+
+    args:
+    - --executor_input
+    - {executorInput: null}
+    - --function_to_execute
+    - predict_test_data

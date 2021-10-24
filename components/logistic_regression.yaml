@@ -1,0 +1,88 @@
+name: Logistic regression
+inputs:
+- {name: features, type: Dataset}
+- {name: labels, type: Dataset}
+- {name: param_grid, type: String}
+- {name: num_folds, type: Integer}
+- {name: scoring, type: String}
+- {name: seed, type: Integer}
+outputs:
+- {name: best_model, type: Model}
+- {name: best_params, type: Dataset}
+- {name: best_score, type: Metrics}
+- {name: cv_results, type: Dataset}
+- {name: Output, type: Float}
+implementation:
+  container:
+    image: yinanli617/customer-churn:latest
+    command:
+    - sh
+    - -c
+    - |2
+
+      if ! [ -x "$(command -v pip)" ]; then
+          python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+      fi
+
+      PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'kfp==1.8.6' && "$0" "$@"
+    - sh
+    - -ec
+    - |
+      program_path=$(mktemp -d)
+      printf "%s" "$0" > "$program_path/ephemeral_component.py"
+      python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+    - |2+
+
+      import kfp
+      from kfp.v2 import dsl
+      from kfp.v2.dsl import *
+      from typing import *
+
+      def logistic_regression(features: Input[Dataset],
+                              labels: Input[Dataset],
+                              param_grid: str,
+                              num_folds: int,
+                              scoring: str,
+                              seed: int,
+                              best_model: Output[Model],
+                              best_params: Output[Dataset],
+                              best_score: Output[Metrics],
+                              cv_results: Output[Dataset],
+                             ) -> float:
+          from sklearn.linear_model import LogisticRegression
+          import pandas as pd
+          from sklearn.metrics import roc_auc_score
+          from sklearn.model_selection import GridSearchCV
+          from pickle import dump
+          from ast import literal_eval
+
+          lr = LogisticRegression(solver='liblinear',
+                                  random_state=seed,
+                                 )
+          param_grid = literal_eval(param_grid)
+          grid_search = GridSearchCV(lr,
+                                     param_grid=param_grid,
+                                     scoring=scoring,
+                                     refit=True, # Use the whole dataset to retrain after finding the best params
+                                     cv=num_folds,
+                                     verbose=2,
+                                    )
+
+          X, y = pd.read_csv(features.path).values, pd.read_csv(labels.path).values
+          grid_search.fit(X, y)
+
+          pd.DataFrame(grid_search.cv_results_).to_csv(cv_results.path, index=False)
+          best_params_ = grid_search.best_params_
+          for key, value in best_params_.items():
+              best_params_[key] = [value]
+          pd.DataFrame(best_params_).to_csv(best_params.path, index=False)
+          dump(grid_search.best_estimator_, open(best_model.path, 'wb'))
+          best_score.log_metric(scoring, grid_search.best_score_)
+
+          return grid_search.best_score_
+
+    args:
+    - --executor_input
+    - {executorInput: null}
+    - --function_to_execute
+    - logistic_regression

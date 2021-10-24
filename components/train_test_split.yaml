@@ -1,0 +1,63 @@
+name: Train test split
+inputs:
+- {name: input_csv, type: Dataset}
+- {name: seed, type: Integer}
+- {name: target, type: String}
+outputs:
+- {name: train_csv, type: Dataset}
+- {name: test_csv, type: Dataset}
+implementation:
+  container:
+    image: yinanli617/customer-churn:latest
+    command:
+    - sh
+    - -c
+    - |2
+
+      if ! [ -x "$(command -v pip)" ]; then
+          python3 -m ensurepip || python3 -m ensurepip --user || apt-get install python3-pip
+      fi
+
+      PIP_DISABLE_PIP_VERSION_CHECK=1 python3 -m pip install --quiet     --no-warn-script-location 'kfp==1.8.6' && "$0" "$@"
+    - sh
+    - -ec
+    - |
+      program_path=$(mktemp -d)
+      printf "%s" "$0" > "$program_path/ephemeral_component.py"
+      python3 -m kfp.v2.components.executor_main                         --component_module_path                         "$program_path/ephemeral_component.py"                         "$@"
+    - |2+
+
+      import kfp
+      from kfp.v2 import dsl
+      from kfp.v2.dsl import *
+      from typing import *
+
+      def train_test_split(input_csv: Input[Dataset],
+                           seed: int,
+                           target: str,
+                           train_csv: Output[Dataset],
+                           test_csv: Output[Dataset]
+                          ):
+          from sklearn.model_selection import train_test_split
+          import pandas as pd
+
+          df = pd.read_csv(input_csv.path)
+          train, test = train_test_split(df,
+                                         test_size=0.2,
+                                         shuffle=True,
+                                         random_state=seed,
+                                         stratify=df[target],
+                                        )
+          train_df = pd.DataFrame(train)
+          train_df.columns = df.columns
+          test_df = pd.DataFrame(test)
+          test_df.columns = df.columns
+
+          train_df.to_csv(train_csv.path, index=False)
+          test_df.to_csv(test_csv.path, index=False)
+
+    args:
+    - --executor_input
+    - {executorInput: null}
+    - --function_to_execute
+    - train_test_split
