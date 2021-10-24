@@ -16,11 +16,21 @@ This repository store a simple ML classification project which I used to show ho
 
   - **Data preprocessing:** Since the dataset has both categorical and numerical features. Before feeding them to a model, we first one-hot encode the categorical features and standardize the numerical features to keep them on the same scale. The `OneHotEncoder` and `StandardScaler` are fit to the training dataset, and then saved so that we can use them to transform the test dataset later on.
 
-  - **Model training:** We train 3 base line models on the preprocessed training data - Logistic Regression, K Nearest Neighbors, and Random Forests. We perform a cross validation with each model and use Grid Search to find the optimal hyperparameters for the model.
+  - **Model training:** We train 3 base line models on the preprocessed training data - Logistic Regression, K Nearest Neighbors, and Random Forests. We perform a cross validation with each model and use Grid Search to find the optimal hyperparameters for the model. We can visualized the selected [evaluation metrics](./screenshots/knn_metrics.png) for each model
 
   - **Make predictions on the test dataset:** Finally, we use one of the three models that gives the best performance to predict the test dataset, and output evaluation metrics. But before making the predictions, don't forget to first preprocess the test dataset using the previously saved `OneHotEncoder` and `StandardScaler`.
 
 The pipeline can be compiled with the command `python make_pipeline.py`. A notebook version is also included in the repository.
+
+## Use the pipeline
+
+This pipeline can be generalized to any similar tabular dataset. The user-defined parameters are list below.
+
+![parameters](./screenshots/pipeline_parameters.png)
+
+## Graph picture of the pipeline
+
+![graph](./screenshots/graph.png)
 
 ## Docker
 
