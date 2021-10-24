@@ -18,7 +18,7 @@ This repository store a simple ML classification project which I used to show ho
 
   - **Model training:** We train 3 base line models on the preprocessed training data - Logistic Regression, K Nearest Neighbors, and Random Forests. We perform a cross validation with each model and use Grid Search to find the optimal hyperparameters for the model. We can visualized the selected [evaluation metrics](./screenshots/knn_metrics.png) for each model
 
-  - **Make predictions on the test dataset:** Finally, we use one of the three models that gives the best performance to predict the test dataset, and output evaluation metrics. But before making the predictions, don't forget to first preprocess the test dataset using the previously saved `OneHotEncoder` and `StandardScaler`.
+  - **Make predictions on the test dataset:** Finally, we use one of the three models that gives the best performance to predict the test dataset, and output [evaluation metrics](./screenshots/test_metrics.png). But before making the predictions, don't forget to first preprocess the test dataset using the previously saved `OneHotEncoder` and `StandardScaler`.
 
 The pipeline can be compiled with the command `python make_pipeline.py`. A notebook version is also included in the repository.
 
